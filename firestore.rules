@@ -1,0 +1,51 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    function isTeacher() {
+      return isSignedIn()
+        && request.auth.token.firebase.sign_in_provider != 'anonymous';
+    }
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    // Teacher profile + subscription. The Stripe webhook writes via Admin SDK
+    // and bypasses these rules.
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['email', 'displayName', 'createdAt']);
+      allow update: if isOwner(uid)
+        && !('subscription' in request.resource.data.diff(resource.data).affectedKeys())
+        && !('stripeCustomerId' in request.resource.data.diff(resource.data).affectedKeys());
+      allow delete: if false;
+    }
+
+    match /recipes/{recipeId} {
+      // Anonymous students AND teachers can read a recipe only when published.
+      // The owning teacher can always read their own recipe (drafts included).
+      allow read: if (resource.data.published == true)
+        || isOwner(resource.data.ownerUid);
+
+      allow create: if isTeacher()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.published == false;
+
+      allow update, delete: if isTeacher()
+        && isOwner(resource.data.ownerUid);
+
+      match /transcripts/{sessionId} {
+        // Only the owning teacher can read transcripts.
+        allow read: if isOwner(resource.data.ownerUid);
+
+        // Direct client transcript writes are forbidden. Only the
+        // appendTranscript Cloud Function (Admin SDK) may write.
+        allow create, update, delete: if false;
+      }
+    }
+  }
+}

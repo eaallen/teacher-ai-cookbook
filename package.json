@@ -1,0 +1,25 @@
+{
+  "name": "teacher-ai-cookbook",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Configurable AI Voice Tutor — Teacher Cookbook + Student Live Agent on a single Firebase project.",
+  "workspaces": [
+    "apps/cookbook",
+    "apps/student",
+    "functions"
+  ],
+  "scripts": {
+    "dev:cookbook": "npm --workspace apps/cookbook run dev",
+    "dev:student": "npm --workspace apps/student run dev",
+    "build:cookbook": "npm --workspace apps/cookbook run build",
+    "build:student": "npm --workspace apps/student run build",
+    "build:functions": "npm --workspace functions run build",
+    "build": "npm run build:cookbook && npm run build:student && npm run build:functions",
+    "emulators": "firebase emulators:start --import=./.emu --export-on-exit",
+    "deploy": "npm run build && firebase deploy --only firestore && firebase deploy --only functions && firebase deploy --only hosting:cookbook && firebase deploy --only hosting:student",
+    "deploy:cookbook": "npm run build:cookbook && firebase deploy --only hosting:cookbook",
+    "deploy:student": "npm run build:student && firebase deploy --only hosting:student",
+    "deploy:functions": "npm run build:functions && firebase deploy --only functions",
+    "deploy:firestore": "firebase deploy --only firestore"
+  }
+}

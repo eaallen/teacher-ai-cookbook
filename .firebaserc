@@ -1,0 +1,13 @@
+{
+  "projects": {
+    "default": "teacher-ai-cookbook"
+  },
+  "targets": {
+    "teacher-ai-cookbook": {
+      "hosting": {
+        "cookbook": ["teacher-ai-cookbook"],
+        "student": ["teacher-ai-student"]
+      }
+    }
+  }
+}
