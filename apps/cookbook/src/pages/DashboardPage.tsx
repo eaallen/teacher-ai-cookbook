@@ -28,9 +28,11 @@ import AddIcon from "@mui/icons-material/Add";
 import LinkIcon from "@mui/icons-material/Link";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import DeleteIcon from "@mui/icons-material/Delete";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import {
+  createRecipe,
   deleteRecipe,
   listenRecipes,
   publishRecipe,
@@ -62,6 +64,7 @@ export default function DashboardPage() {
   const [titleQuery, setTitleQuery] = useState("");
   const [tagFilter, setTagFilter] = useState<string[]>([]);
   const [levelFilter, setLevelFilter] = useState<string>("");
+  const [updatedSortOrder, setUpdatedSortOrder] = useState<"desc" | "asc">("desc");
   const [groupByTag, setGroupByTag] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Recipe | null>(null);
@@ -79,14 +82,23 @@ export default function DashboardPage() {
 
   const filtered = useMemo(() => {
     const q = titleQuery.trim().toLowerCase();
-    return recipes.filter((r) => {
+    const filteredRecipes = recipes.filter((r) => {
       if (q && !r.title.toLowerCase().includes(q)) return false;
       if (levelFilter && r.level !== levelFilter) return false;
-      if (tagFilter.length && !tagFilter.every((t) => r.tags.includes(t)))
+      if (tagFilter.length && !tagFilter.every((t) => r.tags.includes(t))) {
         return false;
+      }
       return true;
     });
-  }, [recipes, titleQuery, tagFilter, levelFilter]);
+
+    return filteredRecipes.sort((a, b) => {
+      const aUpdatedAt = a.updatedAt?.seconds ?? 0;
+      const bUpdatedAt = b.updatedAt?.seconds ?? 0;
+      return updatedSortOrder === "desc"
+        ? bUpdatedAt - aUpdatedAt
+        : aUpdatedAt - bUpdatedAt;
+    });
+  }, [recipes, titleQuery, tagFilter, levelFilter, updatedSortOrder]);
 
   const groups = useMemo(() => {
     if (!groupByTag) return [{ label: "All", recipes: filtered }];
@@ -129,6 +141,24 @@ export default function DashboardPage() {
     }
   }
 
+  /**
+   * Creates a copy of the selected recipe.
+   * @param {Recipe} sourceRecipe - Recipe to clone into a new draft.
+   */
+  async function handleCloneRecipe(sourceRecipe: Recipe) {
+    if (!user) return;
+    await createRecipe(user.uid, {
+      title: `${sourceRecipe.title} copy`,
+      icon: sourceRecipe.icon,
+      level: sourceRecipe.level,
+      tags: sourceRecipe.tags,
+      systemPrompt: sourceRecipe.systemPrompt,
+      courseMaterial: sourceRecipe.courseMaterial,
+      initialTopics: sourceRecipe.initialTopics,
+    });
+    setSnack("Recipe cloned.");
+  }
+
   return (
     <Box>
       <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mb: 3 }}>
@@ -163,6 +193,17 @@ export default function DashboardPage() {
               {l.label}
             </MenuItem>
           ))}
+        </TextField>
+        <TextField
+          select
+          label="Sort by updated"
+          value={updatedSortOrder}
+          onChange={(e) => setUpdatedSortOrder(e.target.value as "desc" | "asc")}
+          size="small"
+          sx={{ minWidth: 200 }}
+        >
+          <MenuItem value="desc">Newest first</MenuItem>
+          <MenuItem value="asc">Oldest first</MenuItem>
         </TextField>
         <FormControlLabel
           control={
@@ -250,6 +291,14 @@ export default function DashboardPage() {
                         onClick={() => navigate(`/recipes/${r.id}/transcripts`)}
                       >
                         <ListAltIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                    <Tooltip title="Clone recipe">
+                      <IconButton
+                        size="small"
+                        onClick={() => handleCloneRecipe(r)}
+                      >
+                        <ContentCopyIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
                     <Box sx={{ flex: 1 }} />

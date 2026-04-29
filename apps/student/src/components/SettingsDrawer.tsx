@@ -123,7 +123,7 @@ export function SettingsDrawer({
             disabled={!sessionActive}
             onClick={onEndSession}
           >
-            Save and Publish
+            End session
           </Button>
         </Stack>
       </Box>

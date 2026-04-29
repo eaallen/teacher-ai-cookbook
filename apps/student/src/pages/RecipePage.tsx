@@ -124,10 +124,7 @@ export default function RecipePage() {
     }
   }
 
-  /**
-   * Ends the active session and flushes any buffered transcript turns.
-   */
-  async function saveAndPublish() {
+  async function end() {
     await sessionRef.current?.end();
     sessionRef.current = null;
     try {
@@ -297,7 +294,7 @@ export default function RecipePage() {
         sessionActive={sessionActive}
         onEndSession={() => {
           setSettingsOpen(false);
-          void saveAndPublish();
+          void end();
         }}
       />
 

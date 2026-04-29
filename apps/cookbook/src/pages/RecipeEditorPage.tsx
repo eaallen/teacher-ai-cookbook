@@ -5,12 +5,15 @@ import {
   Box,
   Button,
   CircularProgress,
+  IconButton,
   MenuItem,
   Paper,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from "@mui/material";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import {
@@ -49,6 +52,7 @@ export default function RecipeEditorPage() {
   const [form, setForm] = useState<FormState>(EMPTY);
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  const [cloning, setCloning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recipe, setRecipe] = useState<Recipe | null>(null);
 
@@ -99,6 +103,32 @@ export default function RecipeEditorPage() {
     }
   }
 
+  /**
+   * Creates a new recipe by cloning the current one.
+   * @param {Recipe} sourceRecipe - Existing recipe used as the clone source.
+   */
+  async function handleClone(sourceRecipe: Recipe) {
+    if (!user) return;
+    setCloning(true);
+    setError(null);
+    try {
+      const newId = await createRecipe(user.uid, {
+        title: `${sourceRecipe.title} copy`,
+        icon: sourceRecipe.icon,
+        level: sourceRecipe.level,
+        tags: sourceRecipe.tags,
+        systemPrompt: sourceRecipe.systemPrompt,
+        courseMaterial: sourceRecipe.courseMaterial,
+        initialTopics: sourceRecipe.initialTopics,
+      });
+      navigate(`/recipes/${newId}`);
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setCloning(false);
+    }
+  }
+
   if (loading) {
     return (
       <Box sx={{ display: "flex", justifyContent: "center", py: 8 }}>
@@ -119,10 +149,27 @@ export default function RecipeEditorPage() {
           {isNew ? "New recipe" : "Edit recipe"}
         </Typography>
         <Stack direction="row" spacing={1}>
-          <Button onClick={() => navigate("/")} disabled={saving}>
+          {!isNew && recipe && (
+            <Tooltip title="Clone recipe">
+              <span>
+                <IconButton
+                  aria-label="Clone recipe"
+                  onClick={() => handleClone(recipe)}
+                  disabled={saving || cloning}
+                >
+                  <ContentCopyIcon />
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
+          <Button onClick={() => navigate("/")} disabled={saving || cloning}>
             Back
           </Button>
-          <Button variant="contained" onClick={handleSave} disabled={saving}>
+          <Button
+            variant="contained"
+            onClick={handleSave}
+            disabled={saving || cloning}
+          >
             {saving ? "Saving…" : "Save"}
           </Button>
         </Stack>
