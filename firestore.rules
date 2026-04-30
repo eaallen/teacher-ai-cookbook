@@ -26,14 +26,12 @@ service cloud.firestore {
     }
 
     match /recipes/{recipeId} {
-      // Anonymous students AND teachers can read a recipe only when published.
-      // The owning teacher can always read their own recipe (drafts included).
-      allow read: if (resource.data.published == true)
-        || isOwner(resource.data.ownerUid);
+      // Students receive validated public session data through Cloud Functions.
+      // The owning teacher can read their own recipe drafts and modes directly.
+      allow read: if isOwner(resource.data.ownerUid);
 
       allow create: if isTeacher()
-        && request.resource.data.ownerUid == request.auth.uid
-        && request.resource.data.published == false;
+        && request.resource.data.ownerUid == request.auth.uid;
 
       allow update, delete: if isTeacher()
         && isOwner(resource.data.ownerUid);
@@ -46,6 +44,16 @@ service cloud.firestore {
         // appendTranscript Cloud Function (Admin SDK) may write.
         allow create, update, delete: if false;
       }
+    }
+
+    match /modes/{modeId} {
+      allow read: if isOwner(resource.data.ownerUid);
+
+      allow create: if isTeacher()
+        && request.resource.data.ownerUid == request.auth.uid;
+
+      allow update, delete: if isTeacher()
+        && isOwner(resource.data.ownerUid);
     }
   }
 }

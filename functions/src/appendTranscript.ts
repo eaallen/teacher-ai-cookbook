@@ -1,5 +1,6 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { getFirestore, FieldValue } from "firebase-admin/firestore";
+import { validateModeAccess } from "./modeAccess";
 
 interface Turn {
   role: "user" | "model";
@@ -9,6 +10,7 @@ interface Turn {
 
 interface RequestBody {
   recipeId?: string;
+  modeId?: string;
   sessionId?: string;
   turns?: Turn[];
 }
@@ -26,16 +28,18 @@ export const appendTranscript = onCall(
     if (!request.auth) {
       throw new HttpsError("unauthenticated", "Sign in required.");
     }
-    const { recipeId, sessionId, turns } = (request.data ?? {}) as RequestBody;
+    const { recipeId, modeId, sessionId, turns } = (request.data ??
+      {}) as RequestBody;
     if (
       !recipeId ||
+      !modeId ||
       !sessionId ||
       !Array.isArray(turns) ||
       turns.length === 0
     ) {
       throw new HttpsError(
         "invalid-argument",
-        "recipeId, sessionId, and a non-empty turns array are required."
+        "recipeId, modeId, sessionId, and a non-empty turns array are required."
       );
     }
     if (turns.length > MAX_TURNS_PER_CALL) {
@@ -60,11 +64,7 @@ export const appendTranscript = onCall(
     }
 
     const db = getFirestore();
-    const recipeSnap = await db.doc(`recipes/${recipeId}`).get();
-    if (!recipeSnap.exists || recipeSnap.get("published") !== true) {
-      throw new HttpsError("not-found", "Recipe not found or not published.");
-    }
-    const ownerUid = recipeSnap.get("ownerUid") as string;
+    const { ownerUid, modeType } = await validateModeAccess(request.data);
 
     const ref = db.doc(`recipes/${recipeId}/transcripts/${sessionId}`);
     const existing = await ref.get();
@@ -82,6 +82,8 @@ export const appendTranscript = onCall(
       await ref.set({
         ownerUid,
         recipeId,
+          modeId,
+          modeType,
         studentUid,
         startedAt: FieldValue.serverTimestamp(),
         lastAppendedAt: FieldValue.serverTimestamp(),

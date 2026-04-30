@@ -25,38 +25,27 @@ import {
 } from "@mui/material";
 import Grid from "@mui/material/Grid2";
 import AddIcon from "@mui/icons-material/Add";
-import LinkIcon from "@mui/icons-material/Link";
+import AutoAwesomeIcon from "@mui/icons-material/AutoAwesome";
 import ListAltIcon from "@mui/icons-material/ListAlt";
 import DeleteIcon from "@mui/icons-material/Delete";
 import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import SchoolIcon from "@mui/icons-material/School";
+import LinkIcon from "@mui/icons-material/Link";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import {
-  createRecipe,
+  cloneRecipe,
   deleteRecipe,
   listenRecipes,
-  publishRecipe,
-  unpublishRecipe,
   type Recipe,
 } from "../data/recipes";
+import { getModesForRecipeRefs, type RecipeMode } from "../data/modes";
 import { LEVELS, levelLabel } from "../lib/levels";
-import { buildLiveUrl } from "../lib/buildLiveUrl";
-
-const DEFAULT_STUDENT_APP_ORIGIN = "https://teacher-ai-student.web.app";
+import { buildRecipeLiveUrl, resolveStudentAppOrigin } from "../lib/buildLiveUrl";
 
 /**
- * Resolves which student app origin should be used for live recipe links.
- * @param {string | undefined} configuredOrigin - Optional origin set via environment variable.
+ * Shows the teacher recipe dashboard with filtering, grouping, and empty states.
  */
-function resolveStudentAppOrigin(configuredOrigin: string | undefined): string {
-  if (window.location.hostname === "localhost") {
-    const origin = configuredOrigin?.trim();
-    console.log("given origin", origin);
-    return origin && origin.length > 0 ? origin : DEFAULT_STUDENT_APP_ORIGIN;
-  }
-  return DEFAULT_STUDENT_APP_ORIGIN;
-}
-
 export default function DashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -68,11 +57,37 @@ export default function DashboardPage() {
   const [groupByTag, setGroupByTag] = useState(false);
   const [snack, setSnack] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<Recipe | null>(null);
+  const [modeSummaries, setModeSummaries] = useState<
+    Record<string, { total: number; published: number; modes: RecipeMode[] }>
+  >({});
 
   useEffect(() => {
     if (!user) return;
     return listenRecipes(user.uid, setRecipes);
   }, [user]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        recipes.map(async (recipe) => {
+          const modes = await getModesForRecipeRefs(recipe.modes ?? []);
+          return [
+            recipe.id,
+            {
+              total: modes.length,
+              published: modes.filter((mode) => mode.published).length,
+              modes,
+            },
+          ] as const;
+        })
+      );
+      if (!cancelled) setModeSummaries(Object.fromEntries(entries));
+    })().catch((e) => setSnack((e as Error).message));
+    return () => {
+      cancelled = true;
+    };
+  }, [recipes]);
 
   const allTags = useMemo(() => {
     const set = new Set<string>();
@@ -115,117 +130,173 @@ export default function DashboardPage() {
       .map(([label, rs]) => ({ label, recipes: rs }));
   }, [filtered, groupByTag]);
 
-  async function handlePublish(r: Recipe) {
-    console.log("import.meta.env.VITE_STUDENT_APP_ORIGIN", import.meta.env.VITE_STUDENT_APP_ORIGIN);
-    const origin = resolveStudentAppOrigin(import.meta.env.VITE_STUDENT_APP_ORIGIN);
-    console.log("origin", origin);
-    const url = buildLiveUrl(origin, r.id);
-    console.log("url", url);
-    await publishRecipe(r.id, url);
-    try {
-      await navigator.clipboard.writeText(url);
-      setSnack(`Published — link copied to clipboard.`);
-    } catch {
-      setSnack(`Published. Live URL: ${url}`);
-    }
-  }
-
-  async function handleCopyLink(r: Recipe) {
-    const origin = resolveStudentAppOrigin(import.meta.env.VITE_STUDENT_APP_ORIGIN);
-    const url = r.liveUrl ?? buildLiveUrl(origin, r.id);
-    try {
-      await navigator.clipboard.writeText(url);
-      setSnack("Link copied.");
-    } catch {
-      setSnack(`Link: ${url}`);
-    }
-  }
-
   /**
    * Creates a copy of the selected recipe.
    * @param {Recipe} sourceRecipe - Recipe to clone into a new draft.
    */
   async function handleCloneRecipe(sourceRecipe: Recipe) {
     if (!user) return;
-    await createRecipe(user.uid, {
-      title: `${sourceRecipe.title} copy`,
-      icon: sourceRecipe.icon,
-      level: sourceRecipe.level,
-      tags: sourceRecipe.tags,
-      systemPrompt: sourceRecipe.systemPrompt,
-      courseMaterial: sourceRecipe.courseMaterial,
-      initialTopics: sourceRecipe.initialTopics,
-    });
+    const sourceModes =
+      modeSummaries[sourceRecipe.id]?.modes ??
+      (await getModesForRecipeRefs(sourceRecipe.modes ?? []));
+    await cloneRecipe(user.uid, sourceRecipe, sourceModes);
     setSnack("Recipe cloned.");
+  }
+
+  /**
+   * Copies the student recipe link that opens the activity picker.
+   * @param {Recipe} recipe - Recipe whose student link should be copied.
+   */
+  async function handleCopyRecipeLink(recipe: Recipe) {
+    const origin = resolveStudentAppOrigin(import.meta.env.VITE_STUDENT_APP_ORIGIN);
+    const url = buildRecipeLiveUrl(origin, recipe.id);
+    try {
+      await navigator.clipboard.writeText(url);
+      setSnack("Recipe link copied.");
+    } catch {
+      setSnack(`Recipe link: ${url}`);
+    }
   }
 
   return (
     <Box>
-      <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mb: 3 }}>
-        <TextField
-          label="Search by title"
-          value={titleQuery}
-          onChange={(e) => setTitleQuery(e.target.value)}
-          size="small"
-          sx={{ flex: 1 }}
-        />
-        <Autocomplete
-          multiple
-          options={allTags}
-          value={tagFilter}
-          onChange={(_, v) => setTagFilter(v)}
-          renderInput={(params) => (
-            <TextField {...params} label="Filter by tags" size="small" />
-          )}
-          sx={{ minWidth: 240 }}
-        />
-        <TextField
-          select
-          label="Level"
-          value={levelFilter}
-          onChange={(e) => setLevelFilter(e.target.value)}
-          size="small"
-          sx={{ minWidth: 200 }}
-        >
-          <MenuItem value="">All levels</MenuItem>
-          {LEVELS.map((l) => (
-            <MenuItem key={l.value} value={l.value}>
-              {l.label}
-            </MenuItem>
-          ))}
-        </TextField>
-        <TextField
-          select
-          label="Sort by updated"
-          value={updatedSortOrder}
-          onChange={(e) => setUpdatedSortOrder(e.target.value as "desc" | "asc")}
-          size="small"
-          sx={{ minWidth: 200 }}
-        >
-          <MenuItem value="desc">Newest first</MenuItem>
-          <MenuItem value="asc">Oldest first</MenuItem>
-        </TextField>
-        <FormControlLabel
-          control={
-            <Switch
-              checked={groupByTag}
-              onChange={(e) => setGroupByTag(e.target.checked)}
-            />
-          }
-          label="Group by tag"
-        />
-      </Stack>
+      {recipes.length > 0 && (
+        <Stack direction={{ xs: "column", md: "row" }} spacing={2} sx={{ mb: 3 }}>
+          <TextField
+            label="Search by title"
+            value={titleQuery}
+            onChange={(e) => setTitleQuery(e.target.value)}
+            size="small"
+            sx={{ flex: 1 }}
+          />
+          <Autocomplete
+            multiple
+            options={allTags}
+            value={tagFilter}
+            onChange={(_, v) => setTagFilter(v)}
+            renderInput={(params) => (
+              <TextField {...params} label="Filter by tags" size="small" />
+            )}
+            sx={{ minWidth: 240 }}
+          />
+          <TextField
+            select
+            label="Level"
+            value={levelFilter}
+            onChange={(e) => setLevelFilter(e.target.value)}
+            size="small"
+            sx={{ minWidth: 200 }}
+          >
+            <MenuItem value="">All levels</MenuItem>
+            {LEVELS.map((l) => (
+              <MenuItem key={l.value} value={l.value}>
+                {l.label}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField
+            select
+            label="Sort by updated"
+            value={updatedSortOrder}
+            onChange={(e) => setUpdatedSortOrder(e.target.value as "desc" | "asc")}
+            size="small"
+            sx={{ minWidth: 200 }}
+          >
+            <MenuItem value="desc">Newest first</MenuItem>
+            <MenuItem value="asc">Oldest first</MenuItem>
+          </TextField>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={groupByTag}
+                onChange={(e) => setGroupByTag(e.target.checked)}
+              />
+            }
+            label="Group by tag"
+          />
+        </Stack>
+      )}
 
-      {filtered.length === 0 && (
+      {recipes.length === 0 && (
+        <Box
+          sx={{
+            minHeight: "calc(100vh - 220px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            textAlign: "center",
+            px: 2,
+            py: 8,
+          }}
+        >
+          <Stack spacing={3} alignItems="center" sx={{ maxWidth: 560 }}>
+            <Box
+              sx={{
+                position: "relative",
+                width: 220,
+                height: 160,
+                borderRadius: 6,
+                background:
+                  "linear-gradient(135deg, rgba(59, 91, 219, 0.14), rgba(59, 91, 219, 0.04))",
+                border: "1px solid",
+                borderColor: "primary.light",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <SchoolIcon sx={{ fontSize: 72, color: "primary.main" }} />
+              <AutoAwesomeIcon
+                sx={{
+                  position: "absolute",
+                  top: 24,
+                  right: 34,
+                  fontSize: 34,
+                  color: "primary.main",
+                }}
+              />
+              <AutoAwesomeIcon
+                sx={{
+                  position: "absolute",
+                  bottom: 26,
+                  left: 34,
+                  fontSize: 24,
+                  color: "primary.light",
+                }}
+              />
+            </Box>
+            <Box>
+              <Typography variant="h4" sx={{ fontWeight: 700, mb: 1 }}>
+                Start building learner experiences
+              </Typography>
+              <Typography color="text.secondary">
+                Create a tutor recipe, add learning material, and publish modes
+                for students.
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              size="large"
+              startIcon={<AddIcon />}
+              onClick={() => navigate("/recipes/new")}
+              sx={{ px: 4, py: 1.5, fontSize: "1rem", textTransform: "none" }}
+            >
+              Create Your First AI Experiance for Learners
+            </Button>
+          </Stack>
+        </Box>
+      )}
+
+      {recipes.length > 0 && filtered.length === 0 && (
         <Box sx={{ textAlign: "center", py: 8, color: "text.secondary" }}>
-          <Typography variant="h6">No recipes yet</Typography>
+          <Typography variant="h6">No matching recipes</Typography>
           <Typography variant="body2" sx={{ mt: 1 }}>
-            Tap the + button to create your first AI tutor.
+            Try changing your search or filters.
           </Typography>
         </Box>
       )}
 
-      {groups.map((g) => (
+      {recipes.length > 0 && groups.map((g) => (
         <Box key={g.label} sx={{ mb: 4 }}>
           {groupByTag && (
             <Typography variant="overline" color="text.secondary">
@@ -245,11 +316,15 @@ export default function DashboardPage() {
                         <Typography variant="h6" sx={{ flex: 1 }}>
                           {r.title}
                         </Typography>
-                        {r.published ? (
-                          <Chip size="small" color="success" label="Published" />
-                        ) : (
-                          <Chip size="small" label="Draft" />
-                        )}
+                        <Chip
+                          size="small"
+                          color={
+                            modeSummaries[r.id]?.published ? "success" : "default"
+                          }
+                          label={`${modeSummaries[r.id]?.total ?? 0} modes · ${
+                            modeSummaries[r.id]?.published ?? 0
+                          } published`}
+                        />
                       </Stack>
                       <Stack direction="row" spacing={1} flexWrap="wrap" sx={{ mb: 1 }}>
                         <Chip size="small" label={levelLabel(r.level)} />
@@ -265,26 +340,9 @@ export default function DashboardPage() {
                     </CardContent>
                   </CardActionArea>
                   <CardActions sx={{ mt: "auto" }}>
-                    {r.published ? (
-                      <Button size="small" onClick={() => unpublishRecipe(r.id)}>
-                        Unpublish
-                      </Button>
-                    ) : (
-                      <Button size="small" onClick={() => handlePublish(r)}>
-                        Publish
-                      </Button>
-                    )}
-                    <Tooltip title="Copy live URL">
-                      <span>
-                        <IconButton
-                          size="small"
-                          disabled={!r.published}
-                          onClick={() => handleCopyLink(r)}
-                        >
-                          <LinkIcon fontSize="small" />
-                        </IconButton>
-                      </span>
-                    </Tooltip>
+                    <Button size="small" onClick={() => navigate(`/recipes/${r.id}`)}>
+                      Edit
+                    </Button>
                     <Tooltip title="Transcripts">
                       <IconButton
                         size="small"
@@ -301,6 +359,14 @@ export default function DashboardPage() {
                         <ContentCopyIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
+                    <Tooltip title="Copy recipe link">
+                      <IconButton
+                        size="small"
+                        onClick={() => handleCopyRecipeLink(r)}
+                      >
+                        <LinkIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
                     <Box sx={{ flex: 1 }} />
                     <Tooltip title="Delete">
                       <IconButton size="small" onClick={() => setConfirmDelete(r)}>
@@ -315,14 +381,16 @@ export default function DashboardPage() {
         </Box>
       ))}
 
-      <Fab
-        color="primary"
-        aria-label="New recipe"
-        sx={{ position: "fixed", bottom: 24, right: 24 }}
-        onClick={() => navigate("/recipes/new")}
-      >
-        <AddIcon />
-      </Fab>
+      {recipes.length > 0 && (
+        <Fab
+          color="primary"
+          aria-label="New recipe"
+          sx={{ position: "fixed", bottom: 24, right: 24 }}
+          onClick={() => navigate("/recipes/new")}
+        >
+          <AddIcon />
+        </Fab>
+      )}
 
       <Snackbar
         open={Boolean(snack)}

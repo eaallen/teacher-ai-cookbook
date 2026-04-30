@@ -17,6 +17,8 @@ export interface TranscriptDoc {
   id: string;
   ownerUid: string;
   recipeId: string;
+  modeId?: string;
+  modeType?: "conversational" | "oral_assessment";
   studentUid: string;
   startedAt?: { seconds: number };
   lastAppendedAt?: { seconds: number };

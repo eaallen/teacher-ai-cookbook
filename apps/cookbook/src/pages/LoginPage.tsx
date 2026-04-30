@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Alert,
   Box,
@@ -14,6 +14,9 @@ import GoogleIcon from "@mui/icons-material/Google";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 
+/**
+ * Renders the teacher authentication form and redirects signed-in teachers.
+ */
 export default function LoginPage() {
   const { signInWithGoogle, signInWithEmail, signUpWithEmail, user, loading } =
     useAuth();
@@ -26,9 +29,15 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  if (!loading && user && !user.isAnonymous) {
-    const from = (location.state as { from?: Location })?.from?.pathname ?? "/";
+  useEffect(() => {
+    if (loading || !user || user.isAnonymous) return;
+    const from =
+      (location.state as { from?: { pathname?: string } } | null)?.from
+        ?.pathname ?? "/";
     navigate(from, { replace: true });
+  }, [loading, location.state, navigate, user]);
+
+  if (!loading && user && !user.isAnonymous) {
     return null;
   }
 

@@ -8,10 +8,11 @@ plan reconciliation).
 
 ```
 https://<student-app-domain>/r/:recipeId
+https://<student-app-domain>/r/:recipeId/m/:modeId
 ```
 
-Cookbook computes this on publish via `buildLiveUrl(origin, recipeId)`.
-Student app routes on `/r/:recipeId`.
+Cookbook computes mode-specific links for published modes via `buildLiveUrl(origin, recipeId, modeId)`.
+Student app routes on `/r/:recipeId` for the published mode picker and `/r/:recipeId/m/:modeId` for a specific mode.
 
 ## Firestore collections
 
@@ -40,10 +41,23 @@ Canonical Recipe.
 | `level`        | string    | `kindergarten` \| `grade1` … `grade12` \| `collegeFreshman` … |
 | `tags`         | string[]  | Free-form tags |
 | `courseMaterial` | string  | Markdown |
-| `systemPrompt` | string    | Teacher-configured system prompt |
-| `initialTopics`| array?    | Optional `[{id, title}]` seed for coverage panel |
+| `modes`        | DocumentReference[] | References to top-level `modes/{modeId}` docs |
+| `createdAt`    | Timestamp | |
+| `updatedAt`    | Timestamp | |
+
+### `modes/{modeId}`
+
+Student experience configuration attached to a recipe.
+
+| Field          | Type      | Notes |
+|----------------|-----------|-------|
+| `ownerUid`     | string    | Teacher uid |
+| `recipeId`     | string    | Parent recipe id |
+| `title`        | string    | Display name for the mode |
+| `type`         | string    | `conversational` \| `oral_assessment` |
+| `systemPrompt` | string?   | Conversational mode only |
+| `rubric`       | object?   | Oral assessment mode only |
 | `published`    | boolean   | False on create |
-| `liveUrl`      | string    | Computed on publish |
 | `createdAt`    | Timestamp | |
 | `updatedAt`    | Timestamp | |
 | `publishedAt`  | Timestamp\|null | |
@@ -67,22 +81,40 @@ All callables live in `us-central1`, use `firebase-functions/v2/https.onCall`,
 and throw `HttpsError` with one of: `unauthenticated`, `permission-denied`,
 `not-found`, `invalid-argument`, `failed-precondition`, `internal`.
 
-### `createLiveSessionToken`
+### `getStudentSessionConfig`
+
+- Auth: required (anonymous OK).
+- Request: `{ recipeId: string, modeId: string }`
+- Response: `{ recipe: { id, title, icon, level, tags, courseMaterial }, mode }`
+- Behavior: Loads `recipes/{recipeId}` and `modes/{modeId}`; validates that the
+  mode is attached to the recipe and published.
+
+### `getStudentRecipeConfig`
 
 - Auth: required (anonymous OK).
 - Request: `{ recipeId: string }`
-- Response: `{ token: string, expiresAt: string, model: string, recipeId: string }`
-- Behavior: Loads `recipes/{recipeId}`; throws `not-found` if missing or
-  `published !== true`. Mints an ephemeral token via `@google/genai`
+- Response: `{ recipe: { id, title, icon, level, tags, courseMaterial }, modes: Array<{ id, title, type, published, learningObjectives? }> }`
+- Behavior: Loads `recipes/{recipeId}` and returns only attached modes where
+  `published` is true. Oral assessment mode summaries include rubric learning
+  objectives for the student picker.
+
+### `createLiveSessionToken`
+
+- Auth: required (anonymous OK).
+- Request: `{ recipeId: string, modeId: string }`
+- Response: `{ token: string, expiresAt: string, model: string, recipeId: string, modeId: string }`
+- Behavior: Validates the requested recipe mode; throws `not-found` if missing
+  or unpublished. Mints an ephemeral token via `@google/genai`
   `authTokens.create`.
 
 ### `appendTranscript`
 
 - Auth: required.
-- Request: `{ recipeId: string, sessionId: string, turns: Array<{ role: 'user'|'model', text: string, ts: number }> }`
+- Request: `{ recipeId: string, modeId: string, sessionId: string, turns: Array<{ role: 'user'|'model', text: string, ts: number }> }`
 - Response: `{ ok: true }`
 - Behavior: Writes/merges `recipes/{recipeId}/transcripts/{sessionId}` with
-  `ownerUid` denormalized from the parent recipe. Validates `turns.length <= 50`.
+  `ownerUid` denormalized from the parent recipe and mode metadata. Validates
+  `turns.length <= 50`.
 
 ### `createStripeCheckoutSession`
 
