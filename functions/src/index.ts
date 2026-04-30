@@ -10,6 +10,8 @@ initializeApp();
 
 export { createLiveSessionToken } from "./createLiveSessionToken";
 export { appendTranscript } from "./appendTranscript";
+export { generateOralAssessmentRubric } from "./generateOralAssessmentRubric";
+export { getStudentRecipeConfig, getStudentSessionConfig } from "./modeAccess";
 export {
   createStripeCheckoutSession,
   createStripeBillingPortalSession,

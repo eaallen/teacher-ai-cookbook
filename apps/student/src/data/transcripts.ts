@@ -6,6 +6,7 @@ const APPEND_BATCH_SIZE = 25;
 
 interface AppendArgs {
   recipeId: string;
+  modeId: string;
   sessionId: string;
   turns: TranscriptTurn[];
 }
@@ -26,6 +27,7 @@ export class TranscriptFlusher {
 
   constructor(
     private readonly recipeId: string,
+    private readonly modeId: string,
     private readonly sessionId: string
   ) {}
 
@@ -44,6 +46,7 @@ export class TranscriptFlusher {
       try {
         await appendFn({
           recipeId: this.recipeId,
+          modeId: this.modeId,
           sessionId: this.sessionId,
           turns,
         });

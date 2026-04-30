@@ -6,7 +6,7 @@ import {
 } from "@google/genai";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../firebase";
-import type { Recipe } from "../data/recipe";
+import type { Recipe, RecipeMode } from "../data/recipe";
 import {
   PlaybackQueue,
   startCapture,
@@ -18,6 +18,13 @@ import {
   coverageReducer,
   type CoverageState,
 } from "./coverage";
+import {
+  ASSESSMENT_TOOL_DECLARATIONS,
+  assessmentReducer,
+  createInitialAssessmentState,
+  type AssessmentLevel,
+  type AssessmentState,
+} from "./assessment";
 
 const DEFAULT_MODEL =
   import.meta.env.VITE_LIVE_MODEL ?? "gemini-3.1-flash-live-preview";
@@ -30,6 +37,7 @@ export interface TranscriptTurn {
 
 export interface SessionEvents {
   onCoverage: (state: CoverageState) => void;
+  onAssessment: (state: AssessmentState) => void;
   onTranscript: (turn: TranscriptTurn) => void;
   onStatus: (status: SessionStatus) => void;
   onError: (message: string) => void;
@@ -45,6 +53,7 @@ export type SessionStatus =
 
 interface StartOptions {
   recipe: Recipe;
+  mode: RecipeMode;
   micDeviceId?: string;
   voiceName?: string;
   events: SessionEvents;
@@ -61,6 +70,7 @@ export class LiveSession {
   private capture: CaptureSession | null = null;
   private playback = new PlaybackQueue();
   private coverage: CoverageState = [];
+  private assessment: AssessmentState = [];
   private events: SessionEvents | null = null;
   private opts: StartOptions | null = null;
   private endedByUser = false;
@@ -72,6 +82,12 @@ export class LiveSession {
     this.events = opts.events;
     this.endedByUser = false;
     this.coverage = [];
+    this.assessment =
+      opts.mode.type === "oral_assessment"
+        ? createInitialAssessmentState(opts.mode.rubric)
+        : [];
+    opts.events.onCoverage(this.coverage);
+    opts.events.onAssessment(this.assessment);
     opts.events.onStatus("connecting");
     try {
       await this.connect();
@@ -89,24 +105,37 @@ export class LiveSession {
     }
   }
 
-  private async fetchToken(recipeId: string): Promise<TokenResponse> {
-    const fn = httpsCallable<{ recipeId: string }, TokenResponse>(
+  private async fetchToken(
+    recipeId: string,
+    modeId: string
+  ): Promise<TokenResponse> {
+    const fn = httpsCallable<{ recipeId: string; modeId: string }, TokenResponse>(
       functions,
       "createLiveSessionToken"
     );
-    const res = await fn({ recipeId });
+    const res = await fn({ recipeId, modeId });
     return res.data;
   }
 
   private async connect(): Promise<void> {
     if (!this.opts || !this.events) throw new Error("Session not initialized.");
-    const tokenRes = await this.fetchToken(this.opts.recipe.id);
+    const tokenRes = await this.fetchToken(
+      this.opts.recipe.id,
+      this.opts.mode.id
+    );
     const ai = new GoogleGenAI({
       apiKey: tokenRes.token,
       httpOptions: { apiVersion: "v1alpha" },
     });
 
-    const systemInstruction = buildSystemPrompt(this.opts.recipe);
+    const systemInstruction = buildSystemPrompt(
+      this.opts.recipe,
+      this.opts.mode
+    );
+    const tools =
+      this.opts.mode.type === "oral_assessment"
+        ? ASSESSMENT_TOOL_DECLARATIONS
+        : TOOL_DECLARATIONS;
 
     this.session = await ai.live.connect({
       model: DEFAULT_MODEL,
@@ -115,7 +144,7 @@ export class LiveSession {
         systemInstruction: { parts: [{ text: systemInstruction }] },
         inputAudioTranscription: {},
         outputAudioTranscription: {},
-        tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
+        tools: [{ functionDeclarations: tools }],
         ...(this.opts.voiceName
           ? {
               speechConfig: {
@@ -159,6 +188,10 @@ export class LiveSession {
     }
   }
 
+  /**
+   * Handles one Live API server message, including batched tool calls.
+   * @param {LiveServerMessage} msg - Server message from the Live API socket.
+   */
   private handleMessage(msg: LiveServerMessage) {
     const content = msg.serverContent;
     if (content) {
@@ -185,9 +218,10 @@ export class LiveSession {
     }
 
     if (msg.toolCall?.functionCalls) {
-      for (const call of msg.toolCall.functionCalls) {
-        this.handleToolCall(call.id ?? "", call.name ?? "", call.args ?? {});
-      }
+      const functionResponses = msg.toolCall.functionCalls.map((call) =>
+        this.handleToolCall(call.id ?? "", call.name ?? "", call.args ?? {})
+      );
+      this.session?.sendToolResponse({ functionResponses });
     }
   }
 
@@ -211,39 +245,50 @@ export class LiveSession {
     this.currentOutputTurn = "";
   }
 
+  /**
+   * Applies a model tool call locally and returns a Live API function response.
+   * @param {string} id - Tool call id from the Live API.
+   * @param {string} name - Tool function name requested by the model.
+   * @param {Record<string, unknown>} args - Raw tool call arguments.
+   */
   private handleToolCall(
     id: string,
     name: string,
     args: Record<string, unknown>
-  ) {
+  ): { id: string; name: string; response: { ok: boolean; error?: string } } {
     let nextState = this.coverage;
     try {
       switch (name) {
         case "addTopic":
-          nextState = coverageReducer(this.coverage, {
+          nextState = coverageReducer(nextState, {
             type: "addTopic",
             id: String(args.id ?? ""),
             title: String(args.title ?? ""),
           });
           break;
         case "markCovered":
-          nextState = coverageReducer(this.coverage, {
+          nextState = coverageReducer(nextState, {
             type: "markCovered",
             id: String(args.id ?? ""),
           });
           break;
         case "setTopics":
-          nextState = coverageReducer(this.coverage, {
+          nextState = coverageReducer(nextState, {
             type: "setTopics",
             topics: (args.topics as { id: string; title: string }[]) ?? [],
           });
+          break;
+        case "scoreLearningObjective":
+          this.handleAssessmentTool(args);
           break;
         default:
           // Unknown tool — still ack so the model doesn't hang.
           break;
       }
     } catch (e) {
-      this.events?.onError(`Tool handler failed: ${(e as Error).message}`);
+      const message = (e as Error).message;
+      this.events?.onError(`Tool handler failed: ${message}`);
+      return { id, name, response: { ok: false, error: message } };
     }
 
     if (nextState !== this.coverage) {
@@ -251,9 +296,40 @@ export class LiveSession {
       this.events?.onCoverage(nextState);
     }
 
-    this.session?.sendToolResponse({
-      functionResponses: [{ id, name, response: { ok: true } }],
+    return { id, name, response: { ok: true } };
+  }
+
+  /**
+   * Applies oral assessment scoring tool calls to local assessment state.
+   * @param {Record<string, unknown>} args - Raw model tool call arguments.
+   */
+  private handleAssessmentTool(args: Record<string, unknown>) {
+    const level = String(args.level ?? "");
+    if (!this.isAssessmentLevel(level)) {
+      throw new Error(`Invalid assessment level: ${level}`);
+    }
+    this.assessment = assessmentReducer(this.assessment, {
+      type: "scoreLearningObjective",
+      objectiveId: String(args.objectiveId ?? ""),
+      level,
+      points: Number(args.points ?? 0),
+      feedback:
+        typeof args.feedback === "string" ? args.feedback : undefined,
     });
+    this.events?.onAssessment(this.assessment);
+  }
+
+  /**
+   * Narrows model-provided strings to supported rubric levels.
+   * @param {string} value - Candidate assessment level.
+   */
+  private isAssessmentLevel(value: string): value is AssessmentLevel {
+    return (
+      value === "beginning" ||
+      value === "developing" ||
+      value === "proficient" ||
+      value === "exemplary"
+    );
   }
 
   sendText(text: string) {

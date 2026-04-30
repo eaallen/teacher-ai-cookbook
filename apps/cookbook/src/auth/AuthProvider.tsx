@@ -11,7 +11,7 @@ import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   signInWithEmailAndPassword,
-  signInWithPopup,
+  signInWithRedirect,
   signOut as fbSignOut,
   type User,
 } from "firebase/auth";
@@ -33,6 +33,10 @@ interface AuthCtx {
 
 const Ctx = createContext<AuthCtx | null>(null);
 
+/**
+ * Creates the teacher profile document when Firebase Auth has a new user.
+ * @param {User} user - Firebase Auth user to mirror into Firestore.
+ */
 async function ensureUserDoc(user: User) {
   const ref = doc(db, "users", user.uid);
   const snap = await getDoc(ref);
@@ -68,7 +72,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       async signInWithGoogle() {
-        await signInWithPopup(auth, new GoogleAuthProvider());
+        await signInWithRedirect(auth, new GoogleAuthProvider());
       },
       async signInWithEmail(email, password) {
         await signInWithEmailAndPassword(auth, email, password);
