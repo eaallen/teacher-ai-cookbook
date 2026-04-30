@@ -938,7 +938,7 @@ export default function RecipeEditorPage() {
                     >
                       {generatingRubricModeId === selectedMode.id
                         ? "Generating..."
-                        : "Generate with AI"}
+                        : "Auto Fill"}
                     </Button>
                   </Stack>
                   <Stack spacing={2}>

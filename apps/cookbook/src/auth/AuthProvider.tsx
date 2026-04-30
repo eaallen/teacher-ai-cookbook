@@ -11,6 +11,7 @@ import {
   createUserWithEmailAndPassword,
   onAuthStateChanged,
   signInWithEmailAndPassword,
+  signInWithPopup,
   signInWithRedirect,
   signOut as fbSignOut,
   type User,
@@ -49,6 +50,26 @@ async function ensureUserDoc(user: User) {
   }
 }
 
+/**
+ * Determines whether Google sign-in should use popup for this environment.
+ * Popup is only used in local dev when the Auth emulator is not enabled.
+ */
+function shouldUsePopupGoogleSignIn(): boolean {
+  return import.meta.env.DEV && import.meta.env.VITE_USE_EMULATOR !== "1";
+}
+
+/**
+ * Starts Google sign-in using environment-specific auth flow.
+ */
+async function signInWithGoogleByEnvironment() {
+  const provider = new GoogleAuthProvider();
+  if (shouldUsePopupGoogleSignIn()) {
+    await signInWithPopup(auth, provider);
+    return;
+  }
+  await signInWithRedirect(auth, provider);
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,7 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       loading,
       async signInWithGoogle() {
-        await signInWithRedirect(auth, new GoogleAuthProvider());
+        await signInWithGoogleByEnvironment();
       },
       async signInWithEmail(email, password) {
         await signInWithEmailAndPassword(auth, email, password);
