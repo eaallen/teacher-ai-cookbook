@@ -6,13 +6,11 @@ voice tutor recipes.
 ## Local development
 
 ```sh
-cp .env.example .env
-# fill in VITE_FIREBASE_* values from your Firebase project, or leave blank
-# and set VITE_USE_EMULATOR=1 to run entirely against the emulator suite.
+# edit .env (or .env.local) with your Firebase web SDK values
+# and ensure VITE_USE_EMULATOR=0 to mirror production behavior.
 
 # from repo root:
 npm install
-firebase emulators:start --import=./.emu --export-on-exit  # in another tab
 npm --workspace apps/cookbook run dev
 ```
 

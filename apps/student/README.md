@@ -7,12 +7,11 @@ voice conversation tailored by the recipe's teacher.
 ## Local development
 
 ```sh
-cp .env.example .env
-# fill in VITE_FIREBASE_* values, or leave blank with VITE_USE_EMULATOR=1.
+# edit .env (or .env.local) with your Firebase web SDK values
+# and ensure VITE_USE_EMULATOR=0 to mirror production behavior.
 
 # from repo root:
 npm install
-firebase emulators:start --import=./.emu --export-on-exit  # in another tab
 npm --workspace apps/student run dev
 ```
 

@@ -31,16 +31,13 @@ firebase functions:secrets:set GOOGLE_GENAI_API_KEY
 firebase functions:secrets:set STRIPE_SECRET_KEY
 firebase functions:secrets:set STRIPE_WEBHOOK_SECRET
 
-# 4. Copy the example env files
-cp apps/cookbook/.env.example apps/cookbook/.env
-cp apps/student/.env.example apps/student/.env
-# then fill in the Firebase web SDK values from Firebase Console → Project Settings.
+# 4. Configure local app env files
+# Edit apps/cookbook/.env and apps/student/.env with Firebase web SDK values.
+# Keep VITE_USE_EMULATOR=0 in local development to mirror production behavior.
 
-# 5. Local development against the emulator
-npm --workspace functions run build:watch # in one terminal, updates to functions are always rebuilt
-npm run emulators                         # in another
-npm run dev:cookbook                      # in another  → http://localhost:5173
-npm run dev:student                       # in another  → http://localhost:5174
+# 5. Local development against production-backed Firebase
+npm run dev:cookbook                      # in one terminal  → http://localhost:5173
+npm run dev:student                       # in another       → http://localhost:5174
 
 # 6. Build everything
 npm run build
