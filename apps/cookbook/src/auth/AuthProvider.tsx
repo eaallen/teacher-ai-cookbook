@@ -9,11 +9,9 @@ import {
 import {
   GoogleAuthProvider,
   createUserWithEmailAndPassword,
-  getRedirectResult,
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signInWithPopup,
-  signInWithRedirect,
   signOut as fbSignOut,
   type User,
 } from "firebase/auth";
@@ -52,37 +50,11 @@ async function ensureUserDoc(user: User) {
 }
 
 /**
- * Determines whether Google sign-in should use popup for this environment.
- * Popup is only used in local dev when the Auth emulator is not enabled.
- */
-function shouldUsePopupGoogleSignIn(): boolean {
-  return import.meta.env.DEV && import.meta.env.VITE_USE_EMULATOR !== "1";
-}
-
-/**
- * Starts Google sign-in using environment-specific auth flow.
+ * Starts Google sign-in using popup flow.
  */
 async function signInWithGoogleByEnvironment() {
   const provider = new GoogleAuthProvider();
-  if (shouldUsePopupGoogleSignIn()) {
-    await signInWithPopup(auth, provider);
-    return;
-  }
-  await signInWithRedirect(auth, provider);
-}
-
-/**
- * Resolves a pending redirect-based sign-in result if one exists.
- * @param {(error: unknown) => void} onError - Callback for non-fatal redirect processing errors.
- */
-async function resolvePendingGoogleRedirectSignIn(
-  onError: (error: unknown) => void
-) {
-  try {
-    await getRedirectResult(auth);
-  } catch (error) {
-    onError(error);
-  }
+  await signInWithPopup(auth, provider);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -91,23 +63,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let unsubscribed = false;
-    let hasAuthStateResolved = false;
-    let hasRedirectResolved = false;
-
-    /**
-     * Finishes startup loading only after auth and redirect state are both settled.
-     */
-    function maybeFinishInitialLoading() {
-      if (unsubscribed) return;
-      if (!hasAuthStateResolved || !hasRedirectResolved) return;
-      setLoading(false);
-    }
 
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       if (unsubscribed) return;
       setUser(u);
-      hasAuthStateResolved = true;
-      maybeFinishInitialLoading();
+      setLoading(false);
       if (u && !u.isAnonymous) {
         try {
           await ensureUserDoc(u);
@@ -115,13 +75,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           // best-effort; rules will block if mis-shaped
         }
       }
-    });
-
-    resolvePendingGoogleRedirectSignIn(() => {
-      // keep auth initialization resilient when redirect result cannot be read
-    }).finally(() => {
-      hasRedirectResolved = true;
-      maybeFinishInitialLoading();
     });
 
     return () => {
